@@ -1,0 +1,91 @@
+# this files holds the different services that are used by all applications
+# this includes the database, the mailer, keycloak, the s3 storage
+
+services:
+  postgresql:
+    image: bitnami/postgresql:14-debian-11
+    restart: always
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      KEYCLOAK_USER: ${KEYCLOAK_DATABASE_NAME}
+      KEYCLOAK_PASSWORD: ${KEYCLOAK_DATABASE_USER}
+      KEYCLOAK_DB: ${KEYCLOAK_DATABASE_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgresql:/var/lib/postgresql/data
+      - ./scripts/postgresql/init.sh:/docker-entrypoint-initdb.d/init.sh
+
+  keycloak:
+    image: bitnami/keycloak:22.0.4
+    restart: always
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    ports:
+      - 8080:8080
+    environment:
+      KEYCLOAK_ADMIN_USER: ${KEYCLOAK_ADMIN_USER}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KEYCLOAK_DATABASE_HOST: postgresql
+      KEYCLOAK_DATABASE_PORT: 5432
+      KEYCLOAK_DATABASE_NAME: ${KEYCLOAK_DATABASE_NAME}
+      KEYCLOAK_DATABASE_USER: ${KEYCLOAK_DATABASE_USER}
+      KEYCLOAK_DATABASE_PASSWORD: ${KEYCLOAK_DATABASE_PASSWORD}
+      KEYCLOAK_ENABLE_HEALTH_ENDPOINTS: "true"
+      KEYCLOAK_ENABLE_HTTPS: "false"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/bitnami/keycloak/bin/kcadm.sh config credentials --config /tmp/config --server http://localhost:8080 --user $KEYCLOAK_ADMIN_USER --password $KEYCLOAK_ADMIN_PASSWORD --realm master && rm /tmp/config",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  keycloak-init:
+    image: bitnami/keycloak:22.0.4
+    restart: no
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    environment:
+      KEYCLOAK_ADMIN_USER: ${KEYCLOAK_ADMIN_USER}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KEYCLOAK_HOST: keycloak:8080
+      KEYCLOAK_NEW_REALM: ${KEYCLOAK_NEW_REALM}
+      KEYCLOAK_NEW_CLIENT_ID: ${KEYCLOAK_NEW_CLIENT_ID}
+      KEYCLOAK_NEW_CLIENT_SECRET: ${KEYCLOAK_NEW_CLIENT_SECRET}
+      KEYCLOAK_NEW_USER: ${KEYCLOAK_NEW_USER}
+      KEYCLOAK_NEW_PASSWORD: ${KEYCLOAK_NEW_PASSWORD}
+      KEYCLOAK_VALID_REDIRECT_URIS: ${KEYCLOAK_VALID_REDIRECT_URIS}
+      KEYCLOAK_SMTP_HOST: ${KEYCLOAK_SMTP_HOST}
+      KEYCLOAK_SMTP_PORT: ${KEYCLOAK_SMTP_PORT}
+      KEYCLOAK_SMTP_USER: ${KEYCLOAK_SMTP_USER}
+      KEYCLOAK_SMTP_PASSWORD: ${KEYCLOAK_SMTP_PASSWORD}
+      DEV: ${KEYCLOAK_DEV}
+    volumes:
+      - ./scripts/keycloak/init-script.sh:/tmp/init-script.sh
+    entrypoint: ["/bin/sh", "-c", "/tmp/init-script.sh"]
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    restart: always
+    ports:
+      - 1025:1025
+      - 8025:8025
+    volumes:
+      - ./.mailhog.auth:/etc/mailhog.auth:ro
+    environment:
+      MH_AUTH_FILE: /etc/mailhog.auth
+
+volumes:
+  postgresql:
